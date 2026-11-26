@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>HEIST CLASH - أونلاين 2D</title>
+<style>
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+  html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;background:#0f172a;font-family:Tahoma,Arial,sans-serif;color:#fff;touch-action:none}
+  canvas{display:block;width:100%;height:100%;touch-action:none}
+  #login{position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;background:radial-gradient(circle,#1e293b,#090d16);z-index:20;padding:20px;text-align:center}
+  h1{color:#facc15;font-size:2.2rem;margin:0 0 6px}
+  #status{font-size:.85rem;margin-top:6px;padding:5px 12px;border-radius:20px;background:rgba(255,255,255,.08)}
+  input{width:100%;max-width:290px;padding:13px;border-radius:12px;border:2px solid #475569;background:#0f172a;color:#fff;font-size:1rem;text-align:center;margin:12px 0;user-select:text;-webkit-user-select:text;font-family:inherit}
+  .btn{width:100%;max-width:290px;padding:14px;border:none;border-radius:12px;background:#22c55e;color:#fff;font-size:1.1rem;font-weight:bold;cursor:pointer;font-family:inherit}
+  .btn:disabled{background:#475569;opacity:.6}
+  #hud{position:fixed;inset:0;pointer-events:none;z-index:10}
+  .hidden{display:none!important}
+  .top{position:absolute;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;align-items:flex-start;gap:6px}
+  .card{background:rgba(15,23,42,.85);border:1px solid rgba(255,255,255,.18);border-radius:12px;padding:7px 11px;font-size:.8rem}
+  .upg-btn{pointer-events:auto;background:#f59e0b;color:#000;border:none;border-radius:10px;padding:8px 11px;font-weight:bold;font-size:.78rem;font-family:inherit}
+  #toast{position:absolute;top:76px;left:50%;transform:translateX(-50%);background:rgba(15,23,42,.95);color:#facc15;padding:7px 16px;border:1px solid #facc15;border-radius:20px;font-size:.85rem;font-weight:bold;opacity:0;transition:opacity .25s;white-space:nowrap}
+  #joy{position:absolute;bottom:22px;left:20px;width:124px;height:124px;border-radius:50%;background:rgba(255,255,255,.08);border:2px solid rgba(255,255,255,.25);pointer-events:auto}
+  #knob{position:absolute;width:48px;height:48px;border-radius:50%;background:#facc15;top:50%;left:50%;transform:translate(-50%,-50%)}
+  .acts{position:absolute;bottom:24px;right:18px;display:flex;gap:12px;align-items:flex-end;pointer-events:auto}
+  .act{border-radius:50%;border:2px solid rgba(255,255,255,.3);color:#fff;font-weight:bold;font-family:inherit}
+  .act:active{transform:scale(.92)}
+  #btnAct{width:66px;height:66px;background:#22c55e;font-size:.85rem}
+  #btnShoot{width:80px;height:80px;background:#ef4444;font-size:.95rem}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="login">
+  <h1>HEIST CLASH</h1>
+  <div style="color:#94a3b8;font-size:.9rem">لعبة سرقة ومنافسة جماعية أونلاين (2D)</div>
+  <div id="status">🟡 جاري الاتصال بالسيرفر...</div>
+  <input id="nm" maxlength="14" placeholder="اكتب اسمك هنا">
+  <button class="btn" id="joinBtn" onclick="joinGame()" disabled>🚀 دخول الأونلاين</button>
+</div>
+
+<div id="hud" class="hidden">
+  <div class="top">
+    <div class="card">
+      <div>❤️ <span id="hp">100</span> | 💵 <b style="color:#4ade80" id="cash">$0</b></div>
+      <div>🎒 الحقيبة: <b id="bag">0/4</b></div>
+      <div style="color:#38bdf8;font-size:.74rem">👥 اللاعبين: <span id="cnt">1</span>/30</div>
+    </div>
+    <button class="upg-btn" id="upgBtn" onclick="socket.emit('upgradeBag')">🎒 تطوير الشنطة ($400)</button>
+  </div>
+  <div id="toast"></div>
+  <div id="joy"><div id="knob"></div></div>
+  <div class="acts">
+    <button class="act" id="btnAct">💰<br>جمع/بيع</button>
+    <button class="act" id="btnShoot">🔫<br>إطلاق</button>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const statusEl = document.getElementById('status');
+const joinBtn = document.getElementById('joinBtn');
+
+if (typeof io === 'undefined') {
+  statusEl.textContent = '🔴 خطأ: لازم تفتح اللعبة عبر رابط السيرفر http://localhost:3000';
+  statusEl.style.color = '#f87171';
+  throw new Error('Socket.io not loaded');
+}
+
+const socket = io();
+socket.on('connect', () => {
+  statusEl.textContent = '🟢 متصل بالسيرفر وجاهز للعب!';
+  statusEl.style.color = '#4ade80';
+  joinBtn.disabled = false;
+});
+socket.on('disconnect', () => {
+  statusEl.textContent = '🔴 انقطع الاتصال بالسيرفر';
+  statusEl.style.color = '#f87171';
+  joinBtn.disabled = true;
+});
+
+const C = document.getElementById('c'), ctx = C.getContext('2d');
+let W = 0, H = 0;
+function resize() { W = C.width = innerWidth; H = C.height = innerHeight; }
+addEventListener('resize', resize); resize();
+
+let myId = null, WORLD = 2000, BUILDINGS = [], SELL_ZONES = [];
+let state = { players: {}, bullets: [], loots: [] };
+let smoothPos = {}, toastT = 0;
+
+function joinGame() {
+  socket.emit('join', document.getElementById('nm').value.trim() || 'لص');
+}
+document.getElementById('nm').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !joinBtn.disabled) joinGame();
+});
+
+socket.on('roomFull', () => alert('الخريطة ممتلئة (30/30)!'));
+socket.on('init', (d) => {
+  myId = d.id; WORLD = d.WORLD; BUILDINGS = d.BUILDINGS; SELL_ZONES = d.SELL_ZONES;
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('hud').classList.remove('hidden');
+  requestAnimationFrame(draw);
+});
+socket.on('msg', (m) => {
+  const t = document.getElementById('toast');
+  t.textContent = m; t.style.opacity = 1; toastT = 2.5;
+});
+socket.on('state', (s) => {
+  state = s;
+  const me = s.players[myId];
+  if (me) {
+    document.getElementById('hp').textContent = me.hp;
+    document.getElementById('cash').textContent = '$' + me.cash;
+    document.getElementById('bag').textContent = `${me.bag.length}/${me.bagCap}`;
+    document.getElementById('cnt').textContent = Object.keys(s.players).length;
+    document.getElementById('upgBtn').textContent = me.bagLv >= 5 ? '🎒 ماكس ✓' : `🎒 تطوير ($${me.bagLv * 400})`;
+  }
+});
+
+// لمس متعدد سريع للأزرار والجويستيك
+document.getElementById('btnAct').addEventListener('touchstart', e => { e.preventDefault(); socket.emit('interact'); }, { passive: false });
+document.getElementById('btnAct').addEventListener('mousedown', () => socket.emit('interact'));
+document.getElementById('btnShoot').addEventListener('touchstart', e => { e.preventDefault(); socket.emit('shoot'); }, { passive: false });
+document.getElementById('btnShoot').addEventListener('mousedown', () => socket.emit('shoot'));
+
+let joyId = null, joyV = { x: 0, y: 0 }, joyC = { x: 0, y: 0 };
+const jZ = document.getElementById('joy'), jK = document.getElementById('knob');
+jZ.addEventListener('touchstart', e => {
+  e.preventDefault(); if (joyId !== null) return;
+  const t = e.changedTouches[0]; joyId = t.identifier;
+  const r = jZ.getBoundingClientRect(); joyC = { x: r.left + r.width/2, y: r.top + r.height/2 };
+  mvJoy(t.clientX, t.clientY);
+}, { passive: false });
+addEventListener('touchmove', e => {
+  for (const t of e.changedTouches) if (t.identifier === joyId) mvJoy(t.clientX, t.clientY);
+}, { passive: false });
+const endJoy = e => {
+  for (const t of e.changedTouches) if (t.identifier === joyId) {
+    joyId = null; joyV = { x: 0, y: 0 }; jK.style.transform = 'translate(-50%,-50%)';
+    socket.emit('input', joyV);
+  }
+};
+addEventListener('touchend', endJoy); addEventListener('touchcancel', endJoy);
+function mvJoy(cx, cy) {
+  let dx = cx - joyC.x, dy = cy - joyC.y, d = Math.hypot(dx, dy);
+  if (d > 44) { dx = (dx/d)*44; dy = (dy/d)*44; }
+  jK.style.transform = `translate(calc(-50% + ${dx}px),calc(-50% + ${dy}px))`;
+  joyV = { x: dx/44, y: dy/44 };
+  socket.emit('input', joyV);
+}
+
+const keys = {};
+addEventListener('keydown', e => {
+  if (!myId) return;
+  keys[e.code] = true;
+  if (e.code === 'Space') socket.emit('shoot');
+  if (e.code === 'KeyE') socket.emit('interact');
+  sendKeys();
+});
+addEventListener('keyup', e => { if (!myId) return; keys[e.code] = false; sendKeys(); });
+function sendKeys() {
+  if (joyId !== null) return;
+  let x = 0, y = 0;
+  if (keys.KeyW || keys.ArrowUp) y = -1; if (keys.KeyS || keys.ArrowDown) y = 1;
+  if (keys.KeyA || keys.ArrowLeft) x = -1; if (keys.KeyD || keys.ArrowRight) x = 1;
+  socket.emit('input', { x, y });
+}
+
+function fmtSec(s) {
+  const m = Math.floor(s / 60), r = s % 60;
+  return `${m}:${r < 10 ? '0' : ''}${r}`;
+}
+
+let lastT = performance.now();
+function draw(now) {
+  const dt = (now - lastT) / 1000; lastT = now;
+  if (toastT > 0) { toastT -= dt; if (toastT <= 0) document.getElementById('toast').style.opacity = 0; }
+
+  const me = state.players[myId];
+  if (!me) { requestAnimationFrame(draw); return; }
+
+  for (const id in state.players) {
+    const p = state.players[id];
+    if (!smoothPos[id]) smoothPos[id] = { x: p.x, y: p.y };
+    smoothPos[id].x += (p.x - smoothPos[id].x) * 0.25;
+    smoothPos[id].y += (p.y - smoothPos[id].y) * 0.25;
+  }
+  const camX = smoothPos[myId].x - W / 2, camY = smoothPos[myId].y - H / 2;
+
+  ctx.fillStyle = '#111827'; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.translate(-camX, -camY);
+
+  ctx.strokeStyle = '#1f2937'; ctx.lineWidth = 2;
+  for (let i = 0; i <= WORLD; i += 200) {
+    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, WORLD); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(WORLD, i); ctx.stroke();
+  }
+  ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 6; ctx.strokeRect(0, 0, WORLD, WORLD);
+
+  SELL_ZONES.forEach(s => {
+    ctx.fillStyle = 'rgba(34,197,94,.22)'; ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.fillStyle = '#4ade80'; ctx.font = 'bold 14px Tahoma'; ctx.textAlign = 'center';
+    ctx.fillText(s.title, s.x, s.y + 4);
+  });
+
+  BUILDINGS.forEach(b => {
+    ctx.fillStyle = b.col; ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 4; ctx.strokeRect(b.x, b.y, b.w, b.h);
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 16px Tahoma'; ctx.textAlign = 'center';
+    ctx.fillText(b.title, b.x + b.w/2, b.y + b.h/2 + 6);
+  });
+
+  state.loots.forEach(l => {
+    ctx.fillStyle = l.ready ? '#facc15' : '#475569';
+    ctx.beginPath(); ctx.arc(l.x, l.y, 16, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 12px Tahoma'; ctx.textAlign = 'center';
+    ctx.fillText(l.ready ? `${l.name} ($${l.val})` : `⏳ ${fmtSec(l.leftSec)}`, l.x, l.y - 22);
+  });
+
+  state.bullets.forEach(b => {
+    ctx.fillStyle = '#fde047'; ctx.beginPath(); ctx.arc(b.x, b.y, 5, 0, Math.PI*2); ctx.fill();
+  });
+
+  for (const id in state.players) {
+    const p = state.players[id], sp = smoothPos[id] || p;
+    ctx.fillStyle = p.col; ctx.beginPath(); ctx.arc(sp.x, sp.y, 18, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = id === myId ? '#facc15' : '#fff'; ctx.lineWidth = 3; ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(sp.x, sp.y); ctx.lineTo(sp.x + Math.cos(p.angle)*24, sp.y + Math.sin(p.angle)*24); ctx.stroke();
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 12px Tahoma'; ctx.textAlign = 'center';
+    ctx.fillText(`${p.name} (${p.hp})`, sp.x, sp.y - 24);
+  }
+  ctx.restore();
+
+  const ms = 90, mx = W - ms - 12, my = 86, sc = ms / WORLD;
+  ctx.fillStyle = 'rgba(15,23,42,.82)'; ctx.fillRect(mx, my, ms, ms);
+  ctx.strokeStyle = 'rgba(255,255,255,.3)'; ctx.lineWidth = 1; ctx.strokeRect(mx, my, ms, ms);
+  ctx.fillStyle = '#22c55e'; SELL_ZONES.forEach(s => ctx.fillRect(mx + s.x*sc - 3, my + s.y*sc - 3, 6, 6));
+  ctx.fillStyle = '#facc15'; state.loots.forEach(l => { if (l.ready) ctx.fillRect(mx + l.x*sc - 2, my + l.y*sc - 2, 4, 4); });
+  for (const id in state.players) {
+    const p = state.players[id];
+    ctx.fillStyle = id === myId ? '#fff' : '#ef4444';
+    ctx.fillRect(mx + p.x*sc - 2, my + p.y*sc - 2, 4, 4);
+  }
+  requestAnimationFrame(draw);
+}
+</script>
+</body>
+</html>
